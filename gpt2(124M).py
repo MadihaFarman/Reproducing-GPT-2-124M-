@@ -5,30 +5,39 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 #-----------------------------
+## task 1 : lets load the gpt2 124M into the class that we are going to develop here. 
+## gpt2 is different from original attention is all you need paper architecture in a few ways. Num 1: reshuffling of layer norms and Num 2: addition of a new norm layer before final classifier. Num 3: Its decoder only, so the cross attention block is completely removed.
 
 class CausalSelfAttention(nn.Module):
     def __init__(self,config):
         super().__init__()
-        assert config.n_embd % config.n_head == 0
-
+        assert config.n_embd % config.n_head == 0   # the assert keyword in Python is a debugging aid that tests if a specific condition in your code evaluates to True. If the condition passes, the program continues executing normally; if it evaluates to False, Python immediately halts the program and raises an AssertionError
+        # key, query , value projection for all heads, but in batch
         self.c_attn = nn.Linear(config.n_embd,3* config.n_embd)
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd)
+        # output projection 
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd)  # it takes in 768 features and outputs 768 features (meaning the size doesn't change), it is a fully connected linear layer with a weight matrix of shape [768, 768].# When you pass your concatenated tensor through this layer:# Every single output feature from Head 1 gets multiplied and combined with features from Head 2, Head 3, and all the others.It acts as a linear mixer, blending the perspectives of all the different attention heads together into a single, unified representation before it leaves the attention block.
+        # regularization .. Saving configuration variables as class attributes (self.n_head and self.n_embd) to be used in forward pass i.e (B,T,self.n_head,C // self.n_head)
         self.n_head = config.n_head
         self.n_embd = config.n_embd
-        self.register_buffer("bias",torch.tril(torch.ones(config.block_size,config.block_size)).view(1,1,config.block_size,config.block_size))
+
+        self.register_buffer("bias",torch.tril(torch.ones(config.block_size,config.block_size)).view(1,1,config.block_size,config.block_size))  # .view(1, 1, config.block_size, config.block_size):Reshapes the 2D matrix into a 4D tensor of shape [1, 1, 1024, 1024]. This extra dimension padding allows it to broadcast seamlessly across different batches and multiple attention heads during matrix operations.
 
     def forward(self,x):
         B,T,C = x.size()
-        qkv = self.c_attn(x)
-        q, k, v = qkv.split(self.n_embd, dim=2)
-        k = k.view(B,T,self.n_head,C // self.n_head).transpose(1,2)
-        q = q.view(B,T,self.n_head,C // self.n_head).transpose(1,2)
-        v = v.view(B,T,self.n_head,C // self.n_head).transpose(1,2)
-        att = (q @ k.transpose(-2,-1)* (1.0/math.sqrt(k.size(-1))))
-        att = att.masked_fill(self.bias[:,:,:T,:T]==0,float('-inf'))
-        att = F.softmax(att,dim=-1)
-        y = att @ v
-        y = y.transpose(1,2).contiguous().view(B,T,C)
+        qkv = self.c_attn(x)   # (B,T,3*n_embd)
+        q, k, v = qkv.split(self.n_embd, dim=2)   # (B,T,n_embd/C)
+        # we are making the number of heads i.e nh into a batch dimension,  so its a batch dim just like B, so that in the operations that follow, pytorch treats B and nh as batches and applies the operations in parallel in both the batch and the heads.
+        # nh is "num of heads", hs is "head size" and C (number of channels) = nh*hs
+        # .view() (A method that reshapes a tensor without copying its underlying memory.)
+        k = k.view(B,T,self.n_head,C // self.n_head).transpose(1,2)    # (B, nh, T, hs)
+        q = q.view(B,T,self.n_head,C // self.n_head).transpose(1,2)    # (B, nh, T, hs)
+        v = v.view(B,T,self.n_head,C // self.n_head).transpose(1,2)    # (B, nh, T, hs)
+        att = (q @ k.transpose(-2,-1)* (1.0/math.sqrt(k.size(-1))))   
+        att = att.masked_fill(self.bias[:,:,:T,:T]==0,float('-inf'))  # wherever the bias is 0 (meaning: "Block this position because it's in the future") 
+        # : (Dimension 1): Keep all elements along the batch dimension (which is size 1).: (Dimension 2): Keep all elements along the attention head dimension (which is size 1).:T (Dimension 3): Take rows from index 0 up to the current sequence length $T$.:T (Dimension 4): Take columns from index 0 up to the current sequence length $T$.
+        att = F.softmax(att,dim=-1)  # softmax normalizes attention so it always sums to 1.
+        y = att @ v   # a way of doing weighted sum   (B, nh, T, hs) @ (B, nh, T, hs) -> (B, nh, T, hs)
+        y = y.transpose(1,2).contiguous().view(B,T,C)  # reassembles all head outputs side by side through .view(B,T,C) (the concatenation operation)
         y = self.c_proj(y)
         return y
 
@@ -36,8 +45,8 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self,config):
         super().__init__()
-        self.c_fc = nn.Linear(config.n_embd, 4*config.n_embd)
-        self.gelu = nn.GELU(approximate='tanh')
+        self.c_fc = nn.Linear(config.n_embd, 4*config.n_embd)    # the 4* comes from original paper where (512*4 = 2048)... n_embd is the incoming input sixe, 4*n_embd is the outgoing dim size and also represent num of nodes in neural layer
+        self.gelu = nn.GELU(approximate='tanh')    # GELU is almost like relu, here the original gelu is not used, rather a tanh approximation function of gelu is used,the reason is that at the time of dev of gpt, the original gelu evalutaion function in tensor was very slow, but not now,but still most models use gelu approximate func.
         self.c_proj = nn.Linear(4*config.n_embd, config.n_embd)
 
     def forward(self,x):
@@ -56,8 +65,8 @@ class Block(nn.Module):
         self.mlp = MLP(config)
 
     def forward(self,x):
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
+        x = x + self.attn(self.ln_1(x))   # here is change from original paper, layernorm is applied before attention and ffwd rather than after attention and ffwd as in paper. This allows for clean residual pathway and helps in optimzation  ...attention can be thought as reduce function where all the tokens communicate/echange information, its an aggregation function/reduce function
+        x = x + self.mlp(self.ln_2(x))    # mlp =  ffwd/ffnn   ... mlp can be thought as it happens at every token individually, there is no info collected or exchanged between tokens, its a sort of map function, (think individually about info they gathered)
         return x
 
 @dataclass
@@ -72,12 +81,12 @@ class GPT(nn.Module):
     def __init__(self,config):
         super().__init__()
         self.config = config
-
-        self.transformer = nn.ModuleDict(dict(  # the main container ... playground.ipynb cell 2 output
-            wte = nn.Embedding(config.vocab_size,config.n_embd),   # nn.Embedding is a glorified wrapper around a tensor that allows you to access its element by indexing into rows
+        # the basic skeleton.architecture 
+        self.transformer = nn.ModuleDict(dict(  # the main container = transformer ... playground.ipynb cell 2 output
+            wte = nn.Embedding(config.vocab_size,config.n_embd),   # nn.Embedding is a glorified wrapper around tensor that allows you to access its element by indexing into rows
             wpe = nn.Embedding(config.block_size,config.n_embd),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = nn.LayerNorm(config.n_embd)  # additional final layer norm (transformer doent have it, GPT2 has added this extra)
+            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]), # h's are the encoder blocks
+            ln_f = nn.LayerNorm(config.n_embd)  # additional final layer norm (transformer doesnt have it, GPT2 has added this extra)
         ))
         self.lm_head = nn.Linear(config.n_embd,config.vocab_size, bias=False)   # final classifier--the lang model head
 
