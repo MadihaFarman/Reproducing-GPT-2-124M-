@@ -91,7 +91,7 @@ class GPT(nn.Module):
         ))
         self.lm_head = nn.Linear(config.n_embd,config.vocab_size, bias=False)   # final classifier--the lang model head
 
-    def forward(self, idx):
+    def forward(self, idx, targets=None):
         # idx is of shape (B,T)
         B,T = idx.size()
         assert T<= self.config.block_size, f"Cannot forward sequence of length {T} as maximum token limit is {self.config.block_size}"
@@ -106,7 +106,10 @@ class GPT(nn.Module):
         # forward the final layer norm and the classifier
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)  # (B,T,vocab_size)
-        return logits
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))  # flattening logits to 2d as crossentropy expects 2d  (B*T,vocab_size)---- targets = (B*T)
+        return logits , loss
 
 
    # load GPT2 params from hugging face to our model and initalize GPT class with those parameters
@@ -182,9 +185,9 @@ y = buf[1:].view(B,T)
 # get logits
 model = GPT(GPTConfig())
 model.to(device)
-logits = model(x)
+logits  , loss = model(x.to(device),y.to(device))
 
-print(logits.shape)
+print(loss)
 
 import sys; 
 sys.exit(0)
