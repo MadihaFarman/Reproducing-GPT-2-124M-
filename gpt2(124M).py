@@ -73,7 +73,7 @@ class Block(nn.Module):
 class GPTConfig:
     block_size: int = 1024
     vocab_size: int = 50257
-    n_layer: int = 12
+    n_layer: int = 12     # blocks
     n_head: int = 12
     n_embd: int = 768 
 
@@ -90,14 +90,15 @@ class GPT(nn.Module):
         ))
         self.lm_head = nn.Linear(config.n_embd,config.vocab_size, bias=False)   # final classifier--the lang model head
 
+   # load GPT2 params from hugging face to our model and initalize GPT class with those parameters
     @classmethod
     def from_pretrained(cls,model_type):
         """Loads pretrained GPT-2 model weights from huggingface"""
         assert model_type in {'gpt2','gpt2-medium','gpt2-large','gpt2-xl'}
-        from transformers import GPT2LMHeadModel
+        from transformers import GPT2LMHeadModel   # Imports Hugging Face's pre-built GPT-2 model class locally so we can download their official weights.
         print("loading weights from pretrained gpt: %s"  % model_type)
 
-        # n_layer, n_head and n_embd are determined fro model_type
+        # n_layer, n_head and n_embd are determined from model_type
         config_args = {
             'gpt2':        dict(n_layer=12, n_head=12, n_embd=768),           # 124M params
             'gpt2-medium': dict(n_layer=24, n_head=16, n_embd=1024),          # 350M params
@@ -108,13 +109,13 @@ class GPT(nn.Module):
         config_args['block_size'] = 1024    # always use 1024 for GPT model checkpoint
         # create a from scratch initialized minGPT model
         config = GPTConfig(**config_args)
-        model = GPT(config)
-        sd = model.state_dict()
+        model = GPT(config)  # Instantiates your custom-built GPT model from scratch using those configuration settings, creating an architecture filled with randomly initialized weights.
+        sd = model.state_dict()  # pulls out a dictionary of all tensors (weights and biases) belonging to your custom model.
         sd_keys = sd.keys()
-        sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')]  # discard this mask/buffer
+        sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')]  # discard this mask/buffer --- not a learnable parameter.
 
         # init a huggingface/transformers model
-        model_hf = GPT2LMHeadModel.from_pretrained(model_type)
+        model_hf = GPT2LMHeadModel.from_pretrained(model_type)   # Downloads OpenAI's official pre-trained GPT-2 model and its weights from Hugging Face into your computer's memory.
         sd_hf = model_hf.state_dict()
 
         # copy while ensuring all of the params are aligned and match in names and shapes
@@ -128,14 +129,14 @@ class GPT(nn.Module):
         for k in sd_keys_hf:
                 if any(k.endswith(w) for w in transposed):
                     # special treatment for the Conv1D weights we need to transpose
-                    assert sd_hf[k].shape[::-1] == sd[k].shape
+                    assert sd_hf[k].shape[::-1] == sd[k].shape   # Verifies that reversing the shape of the Hugging Face weight tensor matches the expected shape of your custom model's tensor.
                     with torch.no_grad():
-                        sd[k].copy_(sd_hf[k].t())
+                        sd[k].copy_(sd_hf[k].t())   # Transposes the Hugging Face weight matrix using .t() to fix the Conv1D layout difference, and copies those values directly into your custom model's corresponding tensor using .copy_().
                 else:
                     # vanilla copy over the other parameters
-                    assert sd_hf[k].shape == sd[k].shape
+                    assert sd_hf[k].shape == sd[k].shape   
                     with torch.no_grad():
-                        sd[k].copy_(sd_hf[k])
+                        sd[k].copy_(sd_hf[k])   # Catches all other parameters that do not require transposition (such as layer normalization weights/biases, embedding tables, and output heads).
 
         return model
 
