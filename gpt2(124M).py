@@ -90,6 +90,9 @@ class GPT(nn.Module):
         ))
         self.lm_head = nn.Linear(config.n_embd,config.vocab_size, bias=False)   # final classifier--the lang model head
 
+        # weight sharing scheme
+        self.transformer.wte.weight = self.lm_head.weight   # this is present in original transformer paper but we missed.. note for myself : check in detail plz
+
     def forward(self, idx):
         # idx is of shape (B,T)
         B,T = idx.size()
