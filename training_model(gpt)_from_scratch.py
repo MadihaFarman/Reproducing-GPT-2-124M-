@@ -17,6 +17,7 @@ class CausalSelfAttention(nn.Module):
         self.c_attn = nn.Linear(config.n_embd,3* config.n_embd)
         # output projection 
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)  # it takes in 768 features and outputs 768 features (meaning the size doesn't change), it is a fully connected linear layer with a weight matrix of shape [768, 768].# When you pass your concatenated tensor through this layer:# Every single output feature from Head 1 gets multiplied and combined with features from Head 2, Head 3, and all the others.It acts as a linear mixer, blending the perspectives of all the different attention heads together into a single, unified representation before it leaves the attention block.
+        self.c_proj.NANOGPT_SCALE_INIT = 1         # the residual stream normalization flag
         # regularization .. Saving configuration variables as class attributes (self.n_head and self.n_embd) to be used in forward pass i.e (B,T,self.n_head,C // self.n_head)
         self.n_head = config.n_head
         self.n_embd = config.n_embd
@@ -49,6 +50,7 @@ class MLP(nn.Module):
         self.c_fc = nn.Linear(config.n_embd, 4*config.n_embd)    # the 4* comes from original paper where (512*4 = 2048)... n_embd is the incoming input sixe, 4*n_embd is the outgoing dim size and also represent num of nodes in neural layer
         self.gelu = nn.GELU(approximate='tanh')    # GELU is almost like relu, here the original gelu is not used, rather a tanh approximation function of gelu is used,the reason is that at the time of dev of gpt, the original gelu evalutaion function in tensor was very slow, but not now,but still most models use gelu approximate func.
         self.c_proj = nn.Linear(4*config.n_embd, config.n_embd)
+        self.c_proj.NANOGPT_SCALE_INIT = 1
 
     def forward(self,x):
         x = self.c_fc(x)
@@ -100,7 +102,10 @@ class GPT(nn.Module):
 
     def _init_weights(self,module):
         if isinstance(module,nn.Linear):
-            torch.nn.init.normal_(model.weight, mean=0.0, std=0.02)
+            std = 0.02
+            if hasattr(module, 'NANOGPT_SCALE_INIT'):
+                std *= (2*self.config.n_layer)** -0.5   # 2 comes from the fact that we have 2 blocks that adds to residual pathway
+            torch.nn.init.normal_(model.weight, mean=0.0, std=std)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
             elif isinstance(module,nn.Embedding):
@@ -216,6 +221,10 @@ device = 'cpu'
 if torch.cuda.is_available():
     device = 'cuda'
 print(f"using device: {device}")
+
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(1337)
 
 # get a data batch
 
