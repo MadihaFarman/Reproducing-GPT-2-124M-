@@ -163,13 +163,21 @@ class GPT(nn.Module):
 # model = GPT.from_pretrained('gpt2')
 # print("didn't crash yay!!")
 
+# attempt to autodetect the device
+device = 'cpu'
+if torch.cuda.is_available():
+    device = 'cuda'
+print(f"using device: {device}")
 ## let's generate from the model
 num_return_sequences = 5
 max_length = 30
 
-model = GPT.from_pretrained('gpt2')
+# model = GPT.from_pretrained('gpt2')  # importing pretrained weights
+# initalizing model from scratch 
+model = GPT(GPTConfig())
 model.eval()   # put the model to eval mode whenever using it. Some layers have diff behaviours in training vs eval (not in this case)
-model.to('cuda')   # moving all tensors to GPU, with this line we move the entire model, and all of its tensors to a separate computer which is gpu, that is connected to cpu and is a whole seprate computer
+# model.to('cuda')   # moving all tensors to GPU, with this line we move the entire model, and all of its tensors to a separate computer which is gpu, that is connected to cpu and is a whole seprate computer
+model.to(device)
 
 # prefix tokens
 import tiktoken
