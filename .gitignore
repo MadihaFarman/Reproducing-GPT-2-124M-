@@ -1,0 +1,37 @@
+# Virtual Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook Checkpoints & Cache
+.ipynb_checkpoints/
+
+# PyTorch & Model Checkpoints / Weights
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.onnx
+*.safetensors
+checkpoints/
+runs/
+wandb/
+
+# Environment / Secret Variables
+.env
+.env.local
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+
+# OS System Files
+.DS_Store
+Thumbs.db
