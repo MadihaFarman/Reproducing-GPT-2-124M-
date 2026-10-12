@@ -174,7 +174,7 @@ max_length = 30
 
 # model = GPT.from_pretrained('gpt2')  # importing pretrained weights
 # initalizing model from scratch 
-model = GPT(GPTConfig())
+model = GPT(GPTConfig())  # the output generated on first time would be random....when we create GPT mdoel, all the layers get created with default constructors to construct the weights of these layers
 model.eval()   # put the model to eval mode whenever using it. Some layers have diff behaviours in training vs eval (not in this case)
 # model.to('cuda')   # moving all tensors to GPU, with this line we move the entire model, and all of its tensors to a separate computer which is gpu, that is connected to cpu and is a whole seprate computer
 model.to(device)
