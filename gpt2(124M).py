@@ -90,9 +90,27 @@ class GPT(nn.Module):
         ))
         self.lm_head = nn.Linear(config.n_embd,config.vocab_size, bias=False)   # final classifier--the lang model head
 
+    def forward(self, idx):
+        # idx is of shape (B,T)
+        B,T = idx.size()
+        assert T<= self.config.block_size, f"Cannot forward sequence of length {T} as maximum token limit is {self.config.block_size}"
+        # forward the token and position embeddings
+        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)  # shape : T
+        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (T, n_embd)
+        tok_emb = self.transformer.wte(idx)  # token embeddings of shape (B, T, n_embd)
+        x = tok_emb + pos_emb
+        # forward the blocks of the transformer
+        for block in self.transformer.h:
+            x = block(x)
+        # forward the final layer norm and the classifier
+        x = self.transformer.ln_f(x)
+        logits = self.lm_head(x)  # (B,T,vocab_size)
+        return logits
+
+
    # load GPT2 params from hugging face to our model and initalize GPT class with those parameters
     @classmethod
-    def from_pretrained(cls,model_type):
+    def from_pretrained(cls,model_type):   # the form_pretrained is a constructor or class method in python that returs the GPt object if we give it the model_type 
         """Loads pretrained GPT-2 model weights from huggingface"""
         assert model_type in {'gpt2','gpt2-medium','gpt2-large','gpt2-xl'}
         from transformers import GPT2LMHeadModel   # Imports Hugging Face's pre-built GPT-2 model class locally so we can download their official weights.
